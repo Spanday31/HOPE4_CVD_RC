@@ -1,110 +1,167 @@
-
 import streamlit as st
-import os
-import math
-from io import StringIO
+from datetime import date
 
-# ── Page Config & CSS ─────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="SMART CVD Risk Reduction")
-st.markdown("""
-<style>
-.header { position: sticky; top: 0; background:#f7f7f7; padding:10px; display:flex; justify-content:flex-end; z-index:100;}
-.card { background:#fff; padding:15px; margin:15px 0; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);}
-</style>
-""", unsafe_allow_html=True)
+# Initialize session state safely
+if 'age' not in st.session_state:
+    st.session_state.update({
+        'age': 65,
+        'sex': "Male",
+        'diabetes': False,
+        'smoker': False,
+        'egfr': 90,
+        'ldl': 3.5,
+        'sbp': 140,
+        'cad': False,
+        'stroke': False,
+        'pad': False
+    })
 
-# ── Header with Logo ─────────────────────────────────────────────────────────
-st.markdown('<div class="header">', unsafe_allow_html=True)
-if os.path.exists("logo.png"):
-    st.image("logo.png", width=150)
-else:
-    st.warning("⚠️ Upload logo.png")
-st.markdown('</div>', unsafe_allow_html=True)
+# SMART-2 Risk Calculation (pure Python implementation)
+def calculate_smart2_risk():
+    try:
+        # Convert inputs to numbers safely
+        age = float(st.session_state.age)
+        egfr = float(st.session_state.egfr)
+        ldl = float(st.session_state.ldl)
+        sbp = float(st.session_state.sbp)
+        vasc_count = sum([st.session_state.cad, st.session_state.stroke, st.session_state.pad])
+        
+        # Coefficients from SMART-2 paper
+        coefficients = {
+            'intercept': -8.1937,
+            'age': 0.0635 * (age - 60),
+            'female': -0.3372 if st.session_state.sex == "Female" else 0,
+            'diabetes': 0.5034 if st.session_state.diabetes else 0,
+            'smoker': 0.7862 if st.session_state.smoker else 0,
+            'egfr<30': 0.9235 if egfr < 30 else 0,
+            'egfr30-60': 0.5539 if 30 <= egfr < 60 else 0,
+            'polyvascular': 0.5434 if vasc_count >= 2 else 0,
+            'ldl': 0.2436 * (ldl - 2.5),
+            'sbp': 0.0083 * (sbp - 120)
+        }
+        
+        # Calculate risk
+        lp = sum(coefficients.values())
+        risk_percent = 100 * (1 - 2.71828**(-2.71828**lp * 10))  # Using e≈2.71828 to avoid math import
+        return max(1.0, min(99.0, round(risk_percent, 1)))
+    except:
+        return None  # Will be handled in display
 
-# ── Progress Selector ─────────────────────────────────────────────────────────
-step = st.selectbox("Go to Step", ["1 Profile", "2 Labs", "3 Therapies", "4 Results"])
+# App layout
+def main():
+    st.set_page_config(
+        page_title="PRIME CVD Risk Calculator",
+        layout="wide",
+        page_icon="❤️"
+    )
+    
+    # Header - No external image needed
+    st.title("PRIME SMART-2 CVD Risk Calculator")
+    st.markdown("""
+    <div style="background:#f0f2f6;padding:10px;border-radius:5px;margin-bottom:20px">
+    <strong style="font-size:1.2em">Cardiovascular Risk Assessment</strong><br>
+    <em>Based on SMART-2 Risk Score</em>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sidebar - Inputs
+    with st.sidebar:
+        st.header("Patient Profile")
+        
+        # Demographic inputs
+        st.session_state.age = st.slider("Age (years)", 30, 90, st.session_state.age, key='age_input')
+        st.session_state.sex = st.radio("Sex", ["Male", "Female"], index=0 if st.session_state.sex == "Male" else 1, key='sex_input')
+        
+        # Risk factors
+        st.session_state.diabetes = st.checkbox("Diabetes", st.session_state.diabetes, key='diabetes_input')
+        st.session_state.smoker = st.checkbox("Current smoker", st.session_state.smoker, key='smoker_input')
+        
+        # Biomarkers
+        st.session_state.egfr = st.slider("eGFR (mL/min)", 15, 120, st.session_state.egfr, key='egfr_input')
+        st.session_state.ldl = st.number_input("LDL-C (mmol/L)", 1.0, 10.0, st.session_state.ldl, step=0.1, key='ldl_input')
+        st.session_state.sbp = st.number_input("SBP (mmHg)", 90, 220, st.session_state.sbp, key='sbp_input')
+        
+        # Vascular disease
+        st.subheader("Vascular Disease")
+        st.session_state.cad = st.checkbox("Coronary artery disease", st.session_state.cad, key='cad_input')
+        st.session_state.stroke = st.checkbox("Prior stroke/TIA", st.session_state.stroke, key='stroke_input')
+        st.session_state.pad = st.checkbox("Peripheral artery disease", st.session_state.pad, key='pad_input')
+    
+    # Main content
+    tab1, tab2 = st.tabs(["Risk Assessment", "Clinical Guidance"])
+    
+    with tab1:
+        # Calculate and display risk
+        risk = calculate_smart2_risk()
+        
+        if risk is not None:
+            st.subheader("10-Year Risk Estimate")
+            
+            # Visual risk display
+            if risk >= 30:
+                st.error(f"**{risk}%** - Very High Risk")
+            elif risk >= 20:
+                st.warning(f"**{risk}%** - High Risk")
+            else:
+                st.success(f"**{risk}%** - Moderate Risk")
+            
+            # Risk factor summary
+            with st.expander("Risk Factors"):
+                factors = [
+                    f"Age: {st.session_state.age}",
+                    f"Sex: {st.session_state.sex}",
+                    f"LDL-C: {st.session_state.ldl} mmol/L",
+                    f"SBP: {st.session_state.sbp} mmHg"
+                ]
+                if st.session_state.diabetes:
+                    factors.append("Diabetes: Yes")
+                if st.session_state.smoker:
+                    factors.append("Smoker: Yes")
+                if st.session_state.egfr < 60:
+                    factors.append(f"eGFR: {st.session_state.egfr} (CKD)")
+                
+                vasc_count = sum([st.session_state.cad, st.session_state.stroke, st.session_state.pad])
+                if vasc_count > 0:
+                    factors.append(f"Vascular Territories: {vasc_count}")
+                
+                st.markdown(" • ".join(factors))
+        else:
+            st.warning("Complete all fields to calculate risk")
+    
+    with tab2:
+        st.header("Clinical Recommendations")
+        
+        if 'risk' in locals() and risk is not None:
+            if risk >= 30:
+                st.error("""
+                **Very High Risk Management:**
+                - High-intensity statin (atorvastatin 40-80mg or rosuvastatin 20-40mg)
+                - Consider PCSK9 inhibitor if LDL ≥1.8 mmol/L
+                - Target SBP <130 mmHg if tolerated
+                - Annual monitoring
+                """)
+            elif risk >= 20:
+                st.warning("""
+                **High Risk Management:**
+                - Moderate-high intensity statin
+                - Target SBP <130 mmHg
+                - Lifestyle modifications
+                - Biannual monitoring
+                """)
+            else:
+                st.success("""
+                **Moderate Risk Management:**
+                - Moderate intensity statin
+                - Target SBP <140 mmHg
+                - Lifestyle counseling
+                - Routine follow-up
+                """)
+        else:
+            st.info("Complete risk assessment to see recommendations")
+    
+    # Footer
+    st.divider()
+    st.caption(f"PRIME Cardiology • {date.today().strftime('%Y-%m-%d')} • v2.0")
 
-# ── Initialize defaults ───────────────────────────────────────────────────────
-defaults = {
-    'age':60, 'sex':'Male', 'weight':75.0, 'height':170.0,
-    'smoker':False, 'diabetes':False, 'egfr':90,
-    'tc':5.2, 'hdl':1.3, 'ldl0':3.0, 'crp':2.5,
-    'hba1c':7.0, 'tg':1.2,
-    'pre_stat':'None','pre_ez':False,'pre_bemp':False,
-    'new_stat':'None','new_ez':False,'new_bemp':False,
-    'sbp':140
-}
-for k,v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-# ── Risk Functions ────────────────────────────────────────────────────────────
-def estimate_10y(age, sex, sbp, tc, hdl, smoker, diabetes, egfr, crp, vasc):
-    sv = 1 if sex=='Male' else 0
-    sm=1 if smoker else 0
-    dm=1 if diabetes else 0
-    lp = 0.064*age + 0.34*sv + 0.02*sbp + 0.25*tc -0.25*hdl +0.44*sm +0.51*dm -0.2*(egfr/10)+0.25*math.log(crp+1)+0.4*vasc
-    raw = 1 - 0.900**math.exp(lp-5.8)
-    return min(raw*100,95.0)
-
-def convert_5yr(r10):
-    p = min(r10,95.0)/100
-    return min((1-(1-p)**0.5)*100,95.0)
-
-def estimate_lt(age, r10):
-    years = max(85-age,0)
-    annual = 1 - (1-min(r10,95.0)/100)**(1/10)
-    return min((1- (1-annual)**years)*100,95.0)
-
-# ── UI Sections ────────────────────────────────────────────────────────────────
-if step=='1 Profile':
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader('Step 1: Profile')
-    st.session_state.age = st.number_input('Age', 30, 90, st.session_state.age)
-    st.session_state.sex = st.selectbox('Sex',['Male','Female'], index=0 if st.session_state.sex=='Male' else 1)
-    st.session_state.weight = st.number_input('Weight (kg)',40.0,200.0,st.session_state.weight)
-    st.session_state.height = st.number_input('Height (cm)',140.0,210.0,st.session_state.height)
-    st.session_state.smoker = st.checkbox('Smoker', value=st.session_state.smoker)
-    st.session_state.diabetes = st.checkbox('Diabetes', value=st.session_state.diabetes)
-    st.session_state.egfr = st.slider('eGFR',15,120,st.session_state.egfr)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif step=='2 Labs':
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader('Step 2: Labs')
-    st.session_state.tc = st.number_input('Total Chol',2.0,10.0,st.session_state.tc)
-    st.session_state.hdl = st.number_input('HDL',0.5,3.0,st.session_state.hdl)
-    st.session_state.ldl0 = st.number_input('LDL',0.5,6.0,st.session_state.ldl0)
-    st.session_state.crp = st.number_input('hs-CRP',0.1,20.0,st.session_state.crp)
-    st.session_state.hba1c = st.number_input('HbA1c',4.0,14.0,st.session_state.hba1c)
-    st.session_state.tg = st.number_input('Trig',0.3,5.0,st.session_state.tg)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif step=='3 Therapies':
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader('Step 3: Therapies')
-    options=['None','Atorvastatin','Rosuvastatin']
-    st.session_state.pre_stat = st.selectbox('Pre Statin',options,index=0)
-    st.session_state.pre_ez = st.checkbox('Pre Ezetimibe',value=st.session_state.pre_ez)
-    st.session_state.pre_bemp = st.checkbox('Pre Bempedoic',value=st.session_state.pre_bemp)
-    st.session_state.new_stat = st.selectbox('New Statin',options,index=0)
-    st.session_state.new_ez = st.checkbox('Add Ezetimibe',value=st.session_state.new_ez)
-    st.session_state.new_bemp = st.checkbox('Add Bempedoic',value=st.session_state.new_bemp)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif step=='4 Results':
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader('Step 4: Results')
-    vasc = sum([st.session_state.pre_stat!='None', st.session_state.pre_ez, st.session_state.pre_bemp])
-    r10 = estimate_10y(st.session_state.age,st.session_state.sex,st.session_state.egfr,
-                       st.session_state.tc,st.session_state.hdl,st.session_state.smoker,
-                       st.session_state.diabetes,st.session_state.egfr,st.session_state.crp,vasc)
-    r5 = convert_5yr(r10)
-    lt = estimate_lt(st.session_state.age, r10)
-    st.write(f'5yr: {r5:.1f}%, 10yr: {r10:.1f}%, LT: {lt:.1f}%')
-    csv = StringIO()
-    csv.write('metric,value\n')
-    csv.write(f'5yr,{r5:.1f}\n10yr,{r10:.1f}\nLT,{lt:.1f}\n')
-    st.download_button('Download CSV', csv.getvalue(), 'results.csv', 'text/csv')
-    st.bar_chart({'Risk':[r5,r10,lt]}).container()
-    st.markdown('</div>', unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()
